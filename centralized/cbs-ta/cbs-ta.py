@@ -149,9 +149,7 @@ class Environment(object):
 
         self.starts = starts
         self.goals = goals
-        self.cost_matrix = self.generate_cost_matrix(
-            dimension, obstacles, starts, goals
-        )
+        self.cost_matrix = []
 
         self.agents = agents
         self.agent_dict = {}
@@ -162,6 +160,11 @@ class Environment(object):
         self.constraint_dict = {}
 
         self.a_star = AStar(self)
+
+    def set_cost_matrix(self):
+        self.cost_matrix = self.generate_cost_matrix(
+            self.dimension, self.obstacles, self.starts, self.goals
+        )
 
     def generate_cost_matrix(self, dimension, obstacles, starts, goals):
         valid_grid_list = []
@@ -446,9 +449,11 @@ class CBS(object):
             self.open_set -= {P}
             conflict_dict = self.env.get_first_conflict(P.solution)
             if not conflict_dict:
-                print("solution found")
-                print(P.cost)
-                return self.generate_plan(P.solution)
+                return (
+                    sum([len(path) - 1 for path in P.solution.values()]),
+                    max([len(path) - 1 for path in P.solution.values()]),
+                    self.generate_plan(P.solution),
+                )
 
             if P.root:
                 new_node = HighLevelNode()
@@ -545,64 +550,129 @@ class CBS(object):
         return best_node.assignment
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("param", help="input file containing map and obstacles")
-    parser.add_argument("output", help="output file with the schedule")
-    args = parser.parse_args()
+from threading import Thread
+import functools
 
-    # Read from input file
-    with open(args.param, "r") as param_file:
-        try:
-            param = yaml.load(param_file, Loader=yaml.FullLoader)
-        except yaml.YAMLError as exc:
-            print(exc)
 
-    dimension = param["map"]["dimensions"]
-    obstacles = param["map"]["obstacles"]
-    starts = param["starts"]
-    goals = param["goals"]
-    agents = [
-        dict(name=f"agent{i}", start=(0, 0), goal=(0, 0)) for i in range(len(starts))
-    ]
-    start_time = time.time()
-    env = Environment(dimension, starts, goals, agents, obstacles)
+def timeout(timeout):
+    def deco(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            res = [
+                Exception(
+                    "function [%s] timeout [%s seconds] exceeded!"
+                    % (func.__name__, timeout)
+                )
+            ]
+
+            def newFunc():
+                try:
+                    res[0] = func(*args, **kwargs)
+                except Exception as e:
+                    res[0] = e
+
+            t = Thread(target=newFunc)
+            t.daemon = True
+            try:
+                t.start()
+                t.join(timeout)
+            except Exception as je:
+                raise je
+            ret = res[0]
+            if isinstance(ret, BaseException):
+                raise ret
+            return ret
+
+        return wrapper
+
+    return deco
+
+
+@timeout(300)
+def test_single_case(env):
+    env.set_cost_matrix()
     cbs = CBS(env)
-    solution = cbs.search()
-    print("Time taken: ", time.time() - start_time)
-    if not solution:
-        print(" Solution not found")
-        return
+    return cbs.search()
 
-    # Write to modified input file
-    with open("m_" + args.param, "w") as param_file:
-        param["agents"] = []
-        for agent in env.agent_dict:
-            param["agents"].append(
-                {
-                    "name": agent,
-                    "start": [
-                        env.agent_dict[agent]["start"].location.x,
-                        env.agent_dict[agent]["start"].location.y,
-                    ],
-                    "goal": [
-                        env.agent_dict[agent]["goal"].location.x,
-                        env.agent_dict[agent]["goal"].location.y,
-                    ],
-                }
+
+def main():
+    # Read from input file
+    map_name = "HB"
+    for robot_num in range(5, 51, 5):
+        basename = f"mini_{map_name}_{robot_num}"
+        basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
+        input_folder = f"{basefolder}CBS-TA-testset/YAML_{basename}/"
+        modified_input_folder = f"{basefolder}CBS-TA-mtestset/YAML_{basename}/"
+        output_folder = f"{basefolder}CBS-TA-testresult/YAML_{basename}/"
+        for count in range(1, 100):
+            input_filename = input_folder + f"{basename}_{count}.yaml"
+            modified_input_filename = (
+                modified_input_folder + f"m_{basename}_{count}.yaml"
             )
-        # remove starts
-        param.pop("starts", None)
-        # remove goals
-        param.pop("goals", None)
-        yaml.dump(param, param_file)
+            output_filename = output_folder + f"{basename}_{count}_output.yaml"
+            with open(
+                input_filename,
+                "r",
+            ) as param_file:
+                try:
+                    param = yaml.load(param_file, Loader=yaml.FullLoader)
+                except yaml.YAMLError as exc:
+                    print(exc)
 
-    # Write to output file
-    output = dict()
-    output["schedule"] = solution
-    output["cost"] = env.compute_solution_cost(solution)
-    with open(args.output, "w") as output_yaml:
-        yaml.safe_dump(output, output_yaml)
+            dimension = param["map"]["dimensions"]
+            obstacles = param["map"]["obstacles"]
+            starts = param["starts"]
+            goals = param["goals"]
+            agents = [
+                dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
+                for i in range(len(starts))
+            ]
+            env = Environment(dimension, starts, goals, agents, obstacles)
+            start_time = time.time()
+            try:
+                sum_of_cost, makespan, solution = test_single_case(env)
+            except Exception as e:
+                print(time.time() - start_time)
+                print("Error occured: ", e)
+                continue
+
+            computation_time = time.time() - start_time
+            print("Time eplased: ", computation_time)
+            if not solution:
+                print(" Solution not found")
+                continue
+
+            # Write to modified input file
+            with open(modified_input_filename, "w") as param_file:
+                param["agents"] = []
+                for agent in env.agent_dict:
+                    param["agents"].append(
+                        {
+                            "name": agent,
+                            "start": [
+                                env.agent_dict[agent]["start"].location.x,
+                                env.agent_dict[agent]["start"].location.y,
+                            ],
+                            "goal": [
+                                env.agent_dict[agent]["goal"].location.x,
+                                env.agent_dict[agent]["goal"].location.y,
+                            ],
+                        }
+                    )
+                # remove starts
+                param.pop("starts", None)
+                # remove goals
+                param.pop("goals", None)
+                yaml.dump(param, param_file)
+
+            # Write to output file
+            output = dict()
+            output["schedule"] = solution
+            output["sum_of_cost"] = sum_of_cost
+            output["makespan"] = makespan
+            output["time"] = computation_time
+            with open(output_filename, "w") as output_yaml:
+                yaml.safe_dump(output, output_yaml)
 
 
 if __name__ == "__main__":
