@@ -481,7 +481,6 @@ class CBS(object):
                 if continue_flag:
                     new_node.cost = self.env.compute_solution_cost(new_node.solution)
                     self.open_set |= {new_node}
-                    print("New Tree added")
 
             constraint_dict = self.env.create_constraints_from_conflict(conflict_dict)
 
@@ -507,7 +506,6 @@ class CBS(object):
                 new_node.solution.update({agent_id: path})
                 new_node.cost = self.env.compute_solution_cost(new_node.solution)
                 self.open_set |= {new_node}
-                print("New Node added")
 
         return {}
 
@@ -546,13 +544,12 @@ class CBS(object):
 
             self.asg_open_set |= {new_asg_node}
         best_node = min(self.asg_open_set)
-        print("New Assignment added")
         return best_node.assignment
 
 
 from threading import Thread
 import functools
-
+from tqdm import tqdm
 
 def timeout(timeout):
     def deco(func):
@@ -597,82 +594,151 @@ def test_single_case(env):
 
 def main():
     # Read from input file
-    map_name = "HB"
-    for robot_num in range(5, 51, 5):
-        basename = f"mini_{map_name}_{robot_num}"
-        basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
-        input_folder = f"{basefolder}CBS-TA-testset/YAML_{basename}/"
-        modified_input_folder = f"{basefolder}CBS-TA-mtestset/YAML_{basename}/"
-        output_folder = f"{basefolder}CBS-TA-testresult/YAML_{basename}/"
-        for count in range(1, 100):
-            input_filename = input_folder + f"{basename}_{count}.yaml"
-            modified_input_filename = (
-                modified_input_folder + f"m_{basename}_{count}.yaml"
-            )
-            output_filename = output_folder + f"{basename}_{count}_output.yaml"
-            with open(
-                input_filename,
-                "r",
-            ) as param_file:
-                try:
-                    param = yaml.load(param_file, Loader=yaml.FullLoader)
-                except yaml.YAMLError as exc:
-                    print(exc)
+    map_name = ["WH"]
+    for map_n in tqdm(map_name, desc="Map", position=0):
+        for robot_num in tqdm(range(35, 51, 5), desc="Robot", position=1, leave=False):
+            basename = f"mini_{map_n}_{robot_num}"
+            basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
+            input_folder = f"{basefolder}CBS-TA-testset/YAML_{basename}/"
+            modified_input_folder = f"{basefolder}CBS-TA-mtestset/YAML_{basename}/"
+            output_folder = f"{basefolder}CBS-TA-testresult/YAML_{basename}/"
 
-            dimension = param["map"]["dimensions"]
-            obstacles = param["map"]["obstacles"]
-            starts = param["starts"]
-            goals = param["goals"]
-            agents = [
-                dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
-                for i in range(len(starts))
-            ]
-            env = Environment(dimension, starts, goals, agents, obstacles)
-            start_time = time.time()
-            try:
-                sum_of_cost, makespan, solution = test_single_case(env)
-            except Exception as e:
-                print(time.time() - start_time)
-                print("Error occured: ", e)
-                continue
-
-            computation_time = time.time() - start_time
-            print("Time eplased: ", computation_time)
-            if not solution:
-                print(" Solution not found")
-                continue
-
-            # Write to modified input file
-            with open(modified_input_filename, "w") as param_file:
-                param["agents"] = []
-                for agent in env.agent_dict:
-                    param["agents"].append(
-                        {
-                            "name": agent,
-                            "start": [
-                                env.agent_dict[agent]["start"].location.x,
-                                env.agent_dict[agent]["start"].location.y,
-                            ],
-                            "goal": [
-                                env.agent_dict[agent]["goal"].location.x,
-                                env.agent_dict[agent]["goal"].location.y,
-                            ],
-                        }
+            if robot_num == 35:
+                for count in tqdm(range(5, 101), desc="Case", position=2, leave=False):
+                    input_filename = input_folder + f"{basename}_{count}.yaml"
+                    modified_input_filename = (
+                            modified_input_folder + f"m_{basename}_{count}.yaml"
                     )
-                # remove starts
-                param.pop("starts", None)
-                # remove goals
-                param.pop("goals", None)
-                yaml.dump(param, param_file)
+                    output_filename = output_folder + f"{basename}_{count}_output.yaml"
+                    with open(
+                            input_filename,
+                            "r",
+                    ) as param_file:
+                        try:
+                            param = yaml.load(param_file, Loader=yaml.FullLoader)
+                        except yaml.YAMLError as exc:
+                            print(exc)
 
-            # Write to output file
-            output = dict()
-            output["schedule"] = solution
-            output["sum_of_cost"] = sum_of_cost
-            output["makespan"] = makespan
-            output["time"] = computation_time
-            with open(output_filename, "w") as output_yaml:
-                yaml.safe_dump(output, output_yaml)
+                    dimension = param["map"]["dimensions"]
+                    obstacles = param["map"]["obstacles"]
+                    starts = param["starts"]
+                    goals = param["goals"]
+                    agents = [
+                        dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
+                        for i in range(len(starts))
+                    ]
+                    env = Environment(dimension, starts, goals, agents, obstacles)
+                    start_time = time.time()
+                    try:
+                        sum_of_cost, makespan, solution = test_single_case(env)
+                    except Exception as e:
+                        print("Error occured: ", e)
+                        continue
+
+                    computation_time = time.time() - start_time
+                    if not solution:
+                        print(" Solution not found")
+                        continue
+
+                    # Write to modified input file
+                    with open(modified_input_filename, "w") as param_file:
+                        param["agents"] = []
+                        for agent in env.agent_dict:
+                            param["agents"].append(
+                                {
+                                    "name": agent,
+                                    "start": [
+                                        env.agent_dict[agent]["start"].location.x,
+                                        env.agent_dict[agent]["start"].location.y,
+                                    ],
+                                    "goal": [
+                                        env.agent_dict[agent]["goal"].location.x,
+                                        env.agent_dict[agent]["goal"].location.y,
+                                    ],
+                                }
+                            )
+                        # remove starts
+                        param.pop("starts", None)
+                        # remove goals
+                        param.pop("goals", None)
+                        yaml.dump(param, param_file)
+
+                    # Write to output file
+                    output = dict()
+                    output["schedule"] = solution
+                    output["sum_of_cost"] = sum_of_cost
+                    output["makespan"] = makespan
+                    output["time"] = computation_time
+                    with open(output_filename, "w") as output_yaml:
+                        yaml.safe_dump(output, output_yaml)
+            else:
+                for count in tqdm(range(1, 101), desc="Case", position=2, leave=False):
+                    input_filename = input_folder + f"{basename}_{count}.yaml"
+                    modified_input_filename = (
+                        modified_input_folder + f"m_{basename}_{count}.yaml"
+                    )
+                    output_filename = output_folder + f"{basename}_{count}_output.yaml"
+                    with open(
+                        input_filename,
+                        "r",
+                    ) as param_file:
+                        try:
+                            param = yaml.load(param_file, Loader=yaml.FullLoader)
+                        except yaml.YAMLError as exc:
+                            print(exc)
+
+                    dimension = param["map"]["dimensions"]
+                    obstacles = param["map"]["obstacles"]
+                    starts = param["starts"]
+                    goals = param["goals"]
+                    agents = [
+                        dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
+                        for i in range(len(starts))
+                    ]
+                    env = Environment(dimension, starts, goals, agents, obstacles)
+                    start_time = time.time()
+                    try:
+                        sum_of_cost, makespan, solution = test_single_case(env)
+                    except Exception as e:
+                        print("Error occured: ", e)
+                        continue
+
+                    computation_time = time.time() - start_time
+                    if not solution:
+                        print(" Solution not found")
+                        continue
+
+                    # Write to modified input file
+                    with open(modified_input_filename, "w") as param_file:
+                        param["agents"] = []
+                        for agent in env.agent_dict:
+                            param["agents"].append(
+                                {
+                                    "name": agent,
+                                    "start": [
+                                        env.agent_dict[agent]["start"].location.x,
+                                        env.agent_dict[agent]["start"].location.y,
+                                    ],
+                                    "goal": [
+                                        env.agent_dict[agent]["goal"].location.x,
+                                        env.agent_dict[agent]["goal"].location.y,
+                                    ],
+                                }
+                            )
+                        # remove starts
+                        param.pop("starts", None)
+                        # remove goals
+                        param.pop("goals", None)
+                        yaml.dump(param, param_file)
+
+                    # Write to output file
+                    output = dict()
+                    output["schedule"] = solution
+                    output["sum_of_cost"] = sum_of_cost
+                    output["makespan"] = makespan
+                    output["time"] = computation_time
+                    with open(output_filename, "w") as output_yaml:
+                        yaml.safe_dump(output, output_yaml)
 
 
 if __name__ == "__main__":

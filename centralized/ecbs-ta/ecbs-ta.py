@@ -16,6 +16,7 @@ import yaml
 from math import fabs
 from itertools import combinations
 from copy import deepcopy
+from tqdm import tqdm
 from hungarian import hungarian, constrained_hungarian
 from a_star_focal import AStarEpsilon
 
@@ -695,82 +696,81 @@ def test_single_case(env):
 
 def main():
     # Read from input file
-    map_name = "HB"
-    for robot_num in range(5, 51, 5):
-        basename = f"mini_{map_name}_{robot_num}"
-        basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
-        input_folder = f"{basefolder}CBS-TA-testset/YAML_{basename}/"
-        modified_input_folder = f"{basefolder}CBS-TA-mtestset/YAML_{basename}/"
-        output_folder = f"{basefolder}CBS-TA-testresult/YAML_{basename}/"
-        for count in range(1, 100):
-            input_filename = input_folder + f"{basename}_{count}.yaml"
-            modified_input_filename = (
-                modified_input_folder + f"m_{basename}_{count}.yaml"
-            )
-            output_filename = output_folder + f"{basename}_{count}_output.yaml"
-            with open(
-                input_filename,
-                "r",
-            ) as param_file:
+    map_name = ["HB", "RN", "WH"]
+    for map_n in tqdm(map_name, desc="Map", position=0):
+        for robot_num in tqdm(range(5, 51, 5), desc="Robot", position=1, leave=False):
+            basename = f"mini_{map_n}_{robot_num}"
+            basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
+            input_folder = f"{basefolder}CBS-TA-testset/YAML_{basename}/"
+            modified_input_folder = f"{basefolder}CBS-TA-mtestset/YAML_{basename}/"
+            output_folder = f"{basefolder}CBS-TA-testresult/YAML_{basename}/"
+            for count in tqdm(range(1, 101), desc="Case", position=2, leave=False):
+                input_filename = input_folder + f"{basename}_{count}.yaml"
+                modified_input_filename = (
+                    modified_input_folder + f"m_{basename}_{count}.yaml"
+                )
+                output_filename = output_folder + f"{basename}_{count}_output.yaml"
+                with open(
+                    input_filename,
+                    "r",
+                ) as param_file:
+                    try:
+                        param = yaml.load(param_file, Loader=yaml.FullLoader)
+                    except yaml.YAMLError as exc:
+                        print(exc)
+
+                dimension = param["map"]["dimensions"]
+                obstacles = param["map"]["obstacles"]
+                starts = param["starts"]
+                goals = param["goals"]
+                agents = [
+                    dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
+                    for i in range(len(starts))
+                ]
+                env = Environment(dimension, starts, goals, agents, obstacles, 1.1)
+                start_time = time.time()
                 try:
-                    param = yaml.load(param_file, Loader=yaml.FullLoader)
-                except yaml.YAMLError as exc:
-                    print(exc)
+                    sum_of_cost, makespan, solution = test_single_case(env)
+                except Exception as e:
+                    print("Error occured: ", e)
+                    continue
 
-            dimension = param["map"]["dimensions"]
-            obstacles = param["map"]["obstacles"]
-            starts = param["starts"]
-            goals = param["goals"]
-            agents = [
-                dict(name=f"agent{i}", start=(0, 0), goal=(0, 0))
-                for i in range(len(starts))
-            ]
-            env = Environment(dimension, starts, goals, agents, obstacles, 1.1)
-            start_time = time.time()
-            try:
-                sum_of_cost, makespan, solution = test_single_case(env)
-            except Exception as e:
-                print(time.time() - start_time)
-                print("Error occured: ", e)
-                continue
+                computation_time = time.time() - start_time
+                if not solution:
+                    print(" Solution not found")
+                    continue
 
-            computation_time = time.time() - start_time
-            print("Time eplased: ", computation_time)
-            if not solution:
-                print(" Solution not found")
-                continue
+                # Write to modified input file
+                with open(modified_input_filename, "w") as param_file:
+                    param["agents"] = []
+                    for agent in env.agent_dict:
+                        param["agents"].append(
+                            {
+                                "name": agent,
+                                "start": [
+                                    env.agent_dict[agent]["start"].location.x,
+                                    env.agent_dict[agent]["start"].location.y,
+                                ],
+                                "goal": [
+                                    env.agent_dict[agent]["goal"].location.x,
+                                    env.agent_dict[agent]["goal"].location.y,
+                                ],
+                            }
+                        )
+                    # remove starts
+                    param.pop("starts", None)
+                    # remove goals
+                    param.pop("goals", None)
+                    yaml.dump(param, param_file)
 
-            # Write to modified input file
-            with open(modified_input_filename, "w") as param_file:
-                param["agents"] = []
-                for agent in env.agent_dict:
-                    param["agents"].append(
-                        {
-                            "name": agent,
-                            "start": [
-                                env.agent_dict[agent]["start"].location.x,
-                                env.agent_dict[agent]["start"].location.y,
-                            ],
-                            "goal": [
-                                env.agent_dict[agent]["goal"].location.x,
-                                env.agent_dict[agent]["goal"].location.y,
-                            ],
-                        }
-                    )
-                # remove starts
-                param.pop("starts", None)
-                # remove goals
-                param.pop("goals", None)
-                yaml.dump(param, param_file)
-
-            # Write to output file
-            output = dict()
-            output["schedule"] = solution
-            output["sum_of_cost"] = sum_of_cost
-            output["makespan"] = makespan
-            output["time"] = computation_time
-            with open(output_filename, "w") as output_yaml:
-                yaml.safe_dump(output, output_yaml)
+                # Write to output file
+                output = dict()
+                output["schedule"] = solution
+                output["sum_of_cost"] = sum_of_cost
+                output["makespan"] = makespan
+                output["time"] = computation_time
+                with open(output_filename, "w") as output_yaml:
+                    yaml.safe_dump(output, output_yaml)
 
 
 if __name__ == "__main__":
