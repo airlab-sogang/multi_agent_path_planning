@@ -124,3 +124,8 @@ dmypy.json
 .pyre/
 
 .idea
+
+CBS-TA-testset
+ECBS-TA-mtestset
+ECBS-TA-testresult
+ECBS-TA-testset
