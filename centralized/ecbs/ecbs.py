@@ -5,6 +5,7 @@ Python implementation of Conflict-based search
 author: Ashwin Bose (@atb033)
 
 """
+import os
 import sys
 import time
 
@@ -329,14 +330,17 @@ class ECBS(object):
         self.open_set = set()
         self.focal_set = set()
         self.closed_set = set()
+        self.high_level_split = 0
 
     def search(self):
+        num_of_split = 0
         start = HighLevelNode()
         # TODO: Initialize it in a better way
         start.constraint_dict = {}
         for agent in self.env.agent_dict.keys():
             start.constraint_dict[agent] = Constraints()
         start.solution, start.lb = self.env.compute_solution()
+        print(start.solution)
         if not start.solution:
             return {}
         start.cost = self.env.compute_solution_cost(start.solution)
@@ -348,6 +352,7 @@ class ECBS(object):
         min_lb = start.lb
         min_cost = start.cost
         w = 1.1
+        self.high_level_split = 0
 
         while self.open_set:
             # update FOCAL if min_f_score has increased
@@ -366,12 +371,17 @@ class ECBS(object):
             self.env.constraint_dict = P.constraint_dict
             conflict_dict = self.env.get_first_conflict(P.solution)
             if not conflict_dict:
-                print("solution found")
+                print("High level split: ", self.high_level_split)
+                return (
+                    sum([len(path) - 1 for path in P.solution.values()]),
+                    max([len(path) - 1 for path in P.solution.values()]),
+                    num_of_split,
+                    self.generate_plan(P.solution),
+                )
 
-                return self.generate_plan(P.solution)
-
+            num_of_split += 1
             constraint_dict = self.env.create_constraints_from_conflict(conflict_dict)
-
+            self.high_level_split += 1
             for agent in constraint_dict.keys():
                 new_node = deepcopy(P)
                 new_node.constraint_dict[agent].add_constraint(constraint_dict[agent])
@@ -399,13 +409,40 @@ class ECBS(object):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("param", help="input file containing map and obstacles")
-    parser.add_argument("output", help="output file with the schedule")
-    args = parser.parse_args()
-
     # Read from input file
-    with open(args.param, 'r') as param_file:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("map_name", type=str, help="Input filename")
+    parser.add_argument("robot_num", type=int, help="Input filename")
+    parser.add_argument("count", type=int, help="Input filename")
+    parser.add_argument("separate_flag", type=int, help="Input filename")
+    args = parser.parse_args()
+    map_name = args.map_name
+    robot_num = args.robot_num
+    count = args.count
+    separate_flag = args.separate_flag
+
+    basename = f"mini_{map_name}_{robot_num}"
+    basefolder = os.path.dirname(os.path.abspath(__file__)) + "/../../"
+    input_folder = f"{basefolder}ECBS-TA-testset/YAML_{basename}/"
+    modified_input_folder = f"{basefolder}ECBS-TA-mtestset/YAML_{basename}/"
+    output_folder = f"{basefolder}ECBS-TA-testresult/YAML_{basename}/"
+
+    if separate_flag == 1:
+        basename = f"mini_{map_name}_Separate_{robot_num}"
+        basefolder = os.path.dirname(os.path.abspath(__file__)) + "/../../"
+        input_folder = f"{basefolder}ECBS-TA-testset/YAML_{basename}/"
+        modified_input_folder = f"{basefolder}ECBS-TA-mtestset/YAML_{basename}/"
+        output_folder = f"{basefolder}ECBS-TA-testresult/YAML_{basename}/"
+
+    input_filename = input_folder + f"{basename}_{count}.yaml"
+    modified_input_filename = (
+            modified_input_folder + f"m_{basename}_{count}.yaml"
+    )
+    output_filename = output_folder + f"{basename}_{count}_output.yaml"
+    with open(
+            input_filename,
+            "r",
+    ) as param_file:
         try:
             param = yaml.load(param_file, Loader=yaml.FullLoader)
         except yaml.YAMLError as exc:
@@ -413,24 +450,52 @@ def main():
 
     dimension = param["map"]["dimensions"]
     obstacles = param["map"]["obstacles"]
-    agents = param['agents']
-
+    agents = param["agents"]
     env = Environment(dimension, agents, obstacles)
-
-    # Searching
-    ecbs = ECBS(env)
     start_time = time.time()
-    solution = ecbs.search()
-    print("Time taken: ", time.time() - start_time)
+    try:
+        ecbs = ECBS(env)
+        sum_of_cost, makespan, num_of_split, solution = ecbs.search()
+    except Exception as e:
+        print("Error occured: ", e)
+        return
+
+    computation_time = time.time() - start_time
     if not solution:
         print(" Solution not found")
         return
 
+    # Write to modified input file
+    with open(modified_input_filename, "w") as param_file:
+        param["agents"] = []
+        for agent in env.agent_dict:
+            param["agents"].append(
+                {
+                    "name": agent,
+                    "start": [
+                        env.agent_dict[agent]["start"].location.x,
+                        env.agent_dict[agent]["start"].location.y,
+                    ],
+                    "goal": [
+                        env.agent_dict[agent]["goal"].location.x,
+                        env.agent_dict[agent]["goal"].location.y,
+                    ],
+                }
+            )
+        # remove starts
+        param.pop("starts", None)
+        # remove goals
+        param.pop("goals", None)
+        yaml.dump(param, param_file)
+
     # Write to output file
     output = dict()
     output["schedule"] = solution
-    output["cost"] = env.compute_solution_cost(solution)
-    with open(args.output, 'w') as output_yaml:
+    output["sum_of_cost"] = sum_of_cost
+    output["makespan"] = makespan
+    output["num_of_split"] = num_of_split
+    output["time"] = computation_time
+    with open(output_filename, "w") as output_yaml:
         yaml.safe_dump(output, output_yaml)
 
 

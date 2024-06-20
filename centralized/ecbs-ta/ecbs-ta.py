@@ -5,6 +5,7 @@ Python implementation of Conflict-based search
 author: Ashwin Bose (@atb033)
 
 """
+import os
 import sys
 import networkx as nx
 import numpy as np
@@ -424,6 +425,7 @@ class HighLevelNode(object):
         self.cost = 0
         self.lb = 0
         self.focal_heuristic = 0
+        self.tree_id = -1
 
     def __hash__(self):
         return hash(str(self.solution) + str(self.assignment) + str(self.cost))
@@ -469,6 +471,7 @@ class ECBS(object):
         self.open_set = set()
         self.focal_set = set()
         self.asg_open_set = set()
+        self.high_level_split_list = list()
 
     def search(self):
         start = HighLevelNode()
@@ -502,6 +505,8 @@ class ECBS(object):
             start.reservation_table.update(
                 {agent_id: {state.time: state.location for state in path}}
             )
+        self.high_level_split_list.append(0)
+        start.tree_id = 0
         start.lb = sum(start.min_f_scores.values())
         start.cost = self.env.compute_solution_cost(start.solution)
         start.focal_heuristic = self.env.focal_heuristic(start.solution)
@@ -527,7 +532,10 @@ class ECBS(object):
             self.focal_set -= {P}
             conflict_dict = self.env.get_first_conflict(P.solution)
             if not conflict_dict:
+                print(*self.high_level_split_list, sep=", ")
+                print("Tree ID: ", P.tree_id)
                 return (
+                    self.high_level_split_list[P.tree_id],
                     sum([len(path) - 1 for path in P.solution.values()]),
                     max([len(path) - 1 for path in P.solution.values()]),
                     self.generate_plan(P.solution),
@@ -562,6 +570,8 @@ class ECBS(object):
                         {agent_id: {state.time: state.location for state in path}}
                     )
                 if continue_flag:
+                    self.high_level_split_list.append(0)
+                    new_node.tree_id = len(self.high_level_split_list) - 1
                     new_node.lb = sum(new_node.min_f_scores.values())
                     new_node.cost = self.env.compute_solution_cost(new_node.solution)
                     new_node.focal_heuristic = self.env.focal_heuristic(
@@ -572,7 +582,7 @@ class ECBS(object):
                         self.focal_set |= {new_node}
 
             constraint_dict = self.env.create_constraints_from_conflict(conflict_dict)
-
+            self.high_level_split_list[P.tree_id] += 1
             for agent_id in constraint_dict.keys():
                 if conflict_dict.time >= len(P.solution[agent_id]):
                     continue
@@ -660,14 +670,14 @@ def main():
     separate_flag = args.separate_flag
 
     basename = f"mini_{map_name}_{robot_num}"
-    basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
+    basefolder = os.path.dirname(os.path.abspath(__file__)) + "/../../"
     input_folder = f"{basefolder}ECBS-TA-testset/YAML_{basename}/"
     modified_input_folder = f"{basefolder}ECBS-TA-mtestset/YAML_{basename}/"
     output_folder = f"{basefolder}ECBS-TA-testresult/YAML_{basename}/"
 
     if separate_flag == 1:
         basename = f"mini_{map_name}_Separate_{robot_num}"
-        basefolder = "/home/joonyeol/PycharmProjects/multi_agent_path_planning/"
+        basefolder = os.path.dirname(os.path.abspath(__file__)) + "/../../"
         input_folder = f"{basefolder}ECBS-TA-testset/YAML_{basename}/"
         modified_input_folder = f"{basefolder}ECBS-TA-mtestset/YAML_{basename}/"
         output_folder = f"{basefolder}ECBS-TA-testresult/YAML_{basename}/"
@@ -698,7 +708,7 @@ def main():
     start_time = time.time()
     try:
         ecbs = ECBS(env)
-        sum_of_cost, makespan, solution = ecbs.search()
+        num_of_split, sum_of_cost, makespan, solution = ecbs.search()
     except Exception as e:
         print("Error occured: ", e)
         return
@@ -707,7 +717,7 @@ def main():
     if not solution:
         print(" Solution not found")
         return
-
+    print("Number of split: ", num_of_split)
     # Write to modified input file
     with open(modified_input_filename, "w") as param_file:
         param["agents"] = []
@@ -737,6 +747,7 @@ def main():
     output["sum_of_cost"] = sum_of_cost
     output["makespan"] = makespan
     output["time"] = computation_time
+    output["num_of_split"] = num_of_split
     with open(output_filename, "w") as output_yaml:
         yaml.safe_dump(output, output_yaml)
 
